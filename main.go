@@ -1,79 +1,95 @@
 package main
 
 import (
-	"encoding/hex"
-	"fmt"
-	"log"
 	"os"
+	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/google/uuid"
-	gethbridge "github.com/status-im/status-go/eth-node/bridge/geth"
+	"go.uber.org/zap"
+
 	"github.com/status-im/status-go/protocol"
 	"github.com/status-im/status-go/wakuv2"
+
 	"github.com/urfave/cli/v2"
 )
+
+const LightFlag = "light"
+const InteractiveFlag = "interactive"
+const CountFlag = "count"
+const NameFlag = "name"
+const AddFlag = "add"
+
+const RetrieveInterval = 300 * time.Millisecond
+const SendInterval = 1 * time.Second
+const WaitingInterval = 5 * time.Second
+
+var CommonFlags = []cli.Flag{
+	&cli.BoolFlag{
+		Name:    LightFlag,
+		Aliases: []string{"l"},
+		Usage:   "Enable light mode",
+	},
+}
+
+var logger *zap.SugaredLogger
+
+type StatusCLI struct {
+	name      string
+	messenger *protocol.Messenger
+	waku      *wakuv2.Waku
+	logger    *zap.SugaredLogger
+}
 
 func main() {
 	app := &cli.App{
 		Commands: []*cli.Command{
 			{
-				Name:    "test",
-				Aliases: []string{"t"},
-				Usage:   "Test sending a message",
+				Name:    "dm",
+				Aliases: []string{"d"},
+				Usage:   "Send direct message",
+				Flags: append([]cli.Flag{
+					&cli.BoolFlag{
+						Name:    InteractiveFlag,
+						Aliases: []string{"i"},
+						Usage:   "Use interactive mode",
+					},
+					&cli.IntFlag{
+						Name:    CountFlag,
+						Aliases: []string{"c"},
+						Value:   1,
+						Usage:   "How many messages to sent from each user",
+					},
+				}, CommonFlags...),
 				Action: func(cCtx *cli.Context) error {
-					fmt.Println("added task: ", cCtx.Args().First())
-
-					privateKey, err := crypto.GenerateKey()
-					if err != nil {
-						fmt.Println(err)
-						return err
-					}
-
-					enrBootstrap := "enrtree://AL65EKLJAUXKKPG43HVTML5EFFWEZ7L4LOKTLZCLJASG4DSESQZEC@prod.status.nodes.status.im"
-					config := &wakuv2.Config{}
-					config.EnableDiscV5 = true
-					config.DiscV5BootstrapNodes = []string{enrBootstrap}
-					config.DiscoveryLimit = 20
-					node, err := wakuv2.New("", "", config, nil, nil, nil, nil, nil)
-					if err != nil {
-						fmt.Println(err)
-						return err
-					}
-
-					messenger, err := protocol.NewMessenger(
-						"testnode",
-						privateKey,
-						gethbridge.NewNodeBridge(nil, nil, node),
-						uuid.New().String(),
-						nil,
-						// options...,
-					)
-					fmt.Println(messenger)
-					if err != nil {
-						fmt.Println(err)
-						return err
-					}
-
-					err = messenger.Init()
-					if err != nil {
-						fmt.Println(err)
-						return err
-					}
-
-					messenger.Start()
-
-					recipientKey, err := crypto.GenerateKey()
-					pkString := hex.EncodeToString(crypto.FromECDSAPub(&recipientKey.PublicKey))
-					chat := protocol.CreateOneToOneChat(pkString, &recipientKey.PublicKey, messenger.)
-
-					return nil
+					return simulate(cCtx)
+				},
+			},
+			{
+				Name:    "serve",
+				Aliases: []string{"s"},
+				Usage:   "Start a server to send and receive messages",
+				Flags: append([]cli.Flag{
+					&cli.StringFlag{
+						Name:    NameFlag,
+						Aliases: []string{"n"},
+						Value:   "Alice",
+						Usage:   "Name of the user",
+					},
+					&cli.StringFlag{
+						Name:    AddFlag,
+						Aliases: []string{"a"},
+						Usage:   "Add a friend with the public key",
+					},
+				}, CommonFlags...),
+				Action: func(cCtx *cli.Context) error {
+					return serve(cCtx)
 				},
 			},
 		},
 	}
 
+	// setupUI()
+
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 }
